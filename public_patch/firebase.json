@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "source": "functions",
+    "codebase": "telegram-public-subscribers",
+    "runtime": "python312",
+    "ignore": [".git", "__pycache__", ".venv", "venv", ".pytest_cache", "*.pyc"]
+  }
+}

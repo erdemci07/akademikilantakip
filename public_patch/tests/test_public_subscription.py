@@ -1,0 +1,88 @@
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+
+class FakeSubscribers:
+    def __init__(self):
+        self.enabled: set[int] = set()
+        self.deleted: set[int] = set()
+
+    def subscribe(self, chat_id: int) -> None:
+        self.enabled.add(chat_id)
+
+    def unsubscribe(self, chat_id: int) -> None:
+        self.enabled.discard(chat_id)
+
+    def forget(self, chat_id: int) -> None:
+        self.enabled.discard(chat_id)
+        self.deleted.add(chat_id)
+
+
+@pytest.fixture
+def command_runner():
+    path = Path(__file__).resolve().parents[1] / "functions" / "subscription_logic.py"
+    spec = importlib.util.spec_from_file_location("public_subscription_logic", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.process_update
+
+
+def message(text: str, chat_id: int = 101, chat_type: str = "private") -> dict:
+    return {"message": {"chat": {"type": chat_type, "id": chat_id}, "text": text}}
+
+
+@pytest.mark.parametrize("command", ["/start", "/devam", "/start@AkademikBot"])
+def test_start_adds_private_chat(command_runner, command):
+    store = FakeSubscribers()
+    replies = []
+    assert command_runner(message(command), store, lambda chat_id, text: replies.append((chat_id, text)))
+    assert store.enabled == {101}
+    assert replies[0][0] == 101
+    assert "aktif" in replies[0][1]
+
+
+def test_stop_and_resume(command_runner):
+    store = FakeSubscribers()
+    def send(chat_id, text):
+        return None
+    command_runner(message("/start"), store, send)
+    command_runner(message("/dur"), store, send)
+    assert store.enabled == set()
+    command_runner(message("/devam"), store, send)
+    assert store.enabled == {101}
+
+
+def test_delete_record(command_runner):
+    store = FakeSubscribers()
+    command_runner(message("/start"), store, lambda chat_id, text: None)
+    command_runner(message("/sil"), store, lambda chat_id, text: None)
+    assert store.deleted == {101}
+
+
+def test_ignore_group_commands(command_runner):
+    store = FakeSubscribers()
+    assert not command_runner(message("/start", -100, "supergroup"), store, lambda *_: None)
+    assert store.enabled == set()
+
+
+def test_ignore_non_command_and_invalid_id(command_runner):
+    store = FakeSubscribers()
+    assert not command_runner(message("Merhaba"), store, lambda *_: None)
+    assert not command_runner(message("/start", True), store, lambda *_: None)
+    assert store.enabled == set()
+
+
+def test_status_without_record(command_runner):
+    responses = []
+    store = FakeSubscribers()
+    assert command_runner(message("/durum"), store, lambda _, text: responses.append(text))
+    assert "Henüz" in responses[0]
+
+
+def test_unknown_command_not_handled(command_runner):
+    assert not command_runner(message("/random"), FakeSubscribers(), lambda *_: None)
