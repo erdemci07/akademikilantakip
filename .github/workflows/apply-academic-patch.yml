@@ -1,4 +1,4 @@
-name: Apply Uploaded Academic Patch
+name: Apply Public Telegram Subscribers Patch
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: apply-academic-patch
+  group: apply-public-subscriptions
   cancel-in-progress: false
 
 jobs:
@@ -15,69 +15,60 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           persist-credentials: true
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Validate uploaded files
+      - name: Validate patch files
         shell: bash
         run: |
           set -euo pipefail
           for file in \
-            akademik_patch/src/akademik_ilan_takip/sources.py \
-            akademik_patch/src/akademik_ilan_takip/models.py \
-            akademik_patch/src/akademik_ilan_takip/scanner.py \
-            akademik_patch/src/akademik_ilan_takip/telegram.py \
-            akademik_patch/src/akademik_ilan_takip/cli.py \
-            akademik_patch/config/sources.json \
-            akademik_patch/tests/test_multisource.py \
-            akademik_patch/docs/KURULUM-VE-SINIRLAR.md; do
-            if [ ! -f "$file" ]; then
-              echo "::error::Missing uploaded patch file: $file"
-              exit 1
-            fi
+            public_patch/src/akademik_ilan_takip/cli.py \
+            public_patch/src/akademik_ilan_takip/telegram.py \
+            public_patch/src/akademik_ilan_takip/subscribers.py \
+            public_patch/functions/main.py \
+            public_patch/functions/subscription_logic.py \
+            public_patch/functions/requirements.txt \
+            public_patch/firebase.json \
+            public_patch/tests/test_public_subscription.py \
+            public_patch/.github/workflows/deploy-telegram-webhook.yml \
+            public_patch/docs/HERKESE-ACIK-BOT-KURULUM.md; do
+            test -f "$file" || { echo "::error::Missing $file"; exit 1; }
           done
-
-      - name: Apply patch to actual application paths
+      - name: Apply updates to application paths
         shell: bash
         run: |
           set -euo pipefail
-          cp akademik_patch/src/akademik_ilan_takip/{sources,models,scanner,telegram,cli}.py src/akademik_ilan_takip/
-          cp akademik_patch/config/sources.json config/sources.json
-          mkdir -p tests docs
-          cp akademik_patch/tests/test_multisource.py tests/test_multisource.py
-          cp akademik_patch/docs/KURULUM-VE-SINIRLAR.md docs/KURULUM-VE-SINIRLAR.md
-          # Remove the staging directory: CI previously linted its duplicate test files.
-          rm -rf akademik_patch
-
-      - name: Install project and test tools
+          cp public_patch/src/akademik_ilan_takip/{cli,telegram,subscribers}.py src/akademik_ilan_takip/
+          mkdir -p functions tests docs .github/workflows
+          cp public_patch/functions/{main,subscription_logic}.py functions/
+          cp public_patch/functions/requirements.txt functions/
+          cp public_patch/firebase.json ./firebase.json
+          cp public_patch/tests/test_public_subscription.py tests/
+          cp public_patch/docs/HERKESE-ACIK-BOT-KURULUM.md docs/
+          cp public_patch/.github/workflows/deploy-telegram-webhook.yml .github/workflows/
+          rm -rf public_patch
+      - name: Install project and test dependencies
         run: python -m pip install -e '.[dev]'
-
-      - name: Fix the identified test import ordering
-        run: python -m ruff check --fix tests/test_multisource.py
-
-      - name: Validate lint
+      - name: Auto-fix safe Ruff issues (imports and modernized typing)
+        run: python -m ruff check --fix functions/ src/akademik_ilan_takip/ tests/
+      - name: Lint changes
         run: python -m ruff check .
-
-      - name: Run all tests
+      - name: Run full test suite
         run: python -m pytest -q
-
-      - name: Commit passing changes to main
+      - name: Commit and push validated changes
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A -- akademik_patch src/akademik_ilan_takip config/sources.json tests/test_multisource.py docs/KURULUM-VE-SINIRLAR.md
+          git add -A
           if git diff --cached --quiet; then
-            echo 'No changes to commit.'
+            echo 'Nothing changed.'
           else
-            git commit -m 'feat: apply academic announcement sources and Telegram links'
+            git commit -m 'feat: public Telegram subscriptions with Firebase webhook'
             git push origin HEAD:main
           fi
