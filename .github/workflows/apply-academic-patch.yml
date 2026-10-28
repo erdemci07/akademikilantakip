@@ -1,3 +1,4 @@
+
 name: Apply Public Telegram Subscribers Patch
 
 on:
@@ -7,68 +8,110 @@ permissions:
   contents: write
 
 concurrency:
-  group: apply-public-subscriptions
+  group: apply-public-subscribers
   cancel-in-progress: false
 
 jobs:
   apply:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v6
         with:
           persist-credentials: true
-      - uses: actions/setup-python@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
-      - name: Validate patch files
+          python-version: "3.12"
+
+      - name: Verify uploaded files
         shell: bash
         run: |
           set -euo pipefail
+
           for file in \
-            public_patch/src/akademik_ilan_takip/cli.py \
-            public_patch/src/akademik_ilan_takip/telegram.py \
-            public_patch/src/akademik_ilan_takip/subscribers.py \
             public_patch/functions/main.py \
             public_patch/functions/subscription_logic.py \
             public_patch/functions/requirements.txt \
             public_patch/firebase.json \
+            public_patch/src/akademik_ilan_takip/cli.py \
+            public_patch/src/akademik_ilan_takip/telegram.py \
+            public_patch/src/akademik_ilan_takip/subscribers.py \
             public_patch/tests/test_public_subscription.py \
-            public_patch/.github/workflows/deploy-telegram-webhook.yml \
-            public_patch/docs/HERKESE-ACIK-BOT-KURULUM.md; do
-            test -f "$file" || { echo "::error::Missing $file"; exit 1; }
+            public_patch/docs/HERKESE-ACIK-BOT-KURULUM.md
+          do
+            if [ ! -f "$file" ]; then
+              echo "::error::Missing file: $file"
+              exit 1
+            fi
           done
-      - name: Apply updates to application paths
+
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Automatically fix all Ruff import errors
         shell: bash
         run: |
           set -euo pipefail
-          cp public_patch/src/akademik_ilan_takip/{cli,telegram,subscribers}.py src/akademik_ilan_takip/
-          mkdir -p functions tests docs .github/workflows
-          cp public_patch/functions/{main,subscription_logic}.py functions/
-          cp public_patch/functions/requirements.txt functions/
-          cp public_patch/firebase.json ./firebase.json
-          cp public_patch/tests/test_public_subscription.py tests/
-          cp public_patch/docs/HERKESE-ACIK-BOT-KURULUM.md docs/
-          cp public_patch/.github/workflows/deploy-telegram-webhook.yml .github/workflows/
+
+          python -m ruff check --fix public_patch
+          python -m ruff check public_patch
+
+      - name: Apply public subscription code
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p functions
+          mkdir -p docs
+          mkdir -p tests
+
+          cp public_patch/functions/main.py functions/main.py
+          cp public_patch/functions/subscription_logic.py functions/subscription_logic.py
+          cp public_patch/functions/requirements.txt functions/requirements.txt
+
+          cp public_patch/firebase.json firebase.json
+
+          cp public_patch/src/akademik_ilan_takip/cli.py src/akademik_ilan_takip/cli.py
+          cp public_patch/src/akademik_ilan_takip/telegram.py src/akademik_ilan_takip/telegram.py
+          cp public_patch/src/akademik_ilan_takip/subscribers.py src/akademik_ilan_takip/subscribers.py
+
+          cp public_patch/tests/test_public_subscription.py tests/test_public_subscription.py
+
+          cp public_patch/docs/HERKESE-ACIK-BOT-KURULUM.md docs/HERKESE-ACIK-BOT-KURULUM.md
+
           rm -rf public_patch
-      - name: Install project and test dependencies
-        run: python -m pip install -e '.[dev]'
-      - name: Auto-fix safe Ruff issues (imports and modernized typing)
-        run: python -m ruff check --fix functions/ src/akademik_ilan_takip/ tests/
-      - name: Lint changes
+
+      - name: Final Ruff validation
         run: python -m ruff check .
-      - name: Run full test suite
+
+      - name: Run all Python tests
         run: python -m pytest -q
-      - name: Commit and push validated changes
+
+      - name: Commit and push verified changes
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A -- \
+            public_patch \
+            functions \
+            firebase.json \
+            src/akademik_ilan_takip/cli.py \
+            src/akademik_ilan_takip/telegram.py \
+            src/akademik_ilan_takip/subscribers.py \
+            tests/test_public_subscription.py \
+            docs/HERKESE-ACIK-BOT-KURULUM.md
+
           if git diff --cached --quiet; then
-            echo 'Nothing changed.'
+            echo "No changes to commit."
           else
-            git commit -m 'feat: public Telegram subscriptions with Firebase webhook'
+            git commit -m "feat: enable public Telegram subscribers"
             git push origin HEAD:main
           fi
