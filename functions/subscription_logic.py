@@ -26,7 +26,7 @@ def process_update(
         return False
     command = text.split(maxsplit=1)[0].split("@", maxsplit=1)[0].lower()
     if command in {"/start", "/devam"}:
-        subscribers.subscribe(chat_id)
+        first_subscription = subscribers.subscribe(chat_id)
         send(chat_id, (
             "✅ Akademik İlan Takip aboneliğin aktif!\n"
             "Türkiye'deki yeni akademik ilanlar ve saatlik tarama raporu buraya gönderilecek.\n"
@@ -34,6 +34,18 @@ def process_update(
             "Bildirimleri kapat: /dur\nYeniden aç: /devam\nSon ilanlar: /sonilanlar\n"
             "Son tarama: /durum\nVerilerini sil: /sil"
         ))
+        # Send the recorded backlog only for a genuinely new private-chat user.
+        # Repeated /start and /devam should not resend the same notices.
+        if command == "/start" and first_subscription is True and repository is not None:
+            try:
+                history = repository.initial_history_summary()
+            except Exception:
+                history = (
+                    "📚 Geçmiş duyurular şu anda görüntülenemedi. "
+                    "Son kayıtları görmek için /sonilanlar yazabilirsiniz."
+                )
+            if history:
+                send(chat_id, history)
         return True
     if command in {"/dur", "/stop", "/iptal"}:
         subscribers.unsubscribe(chat_id)
