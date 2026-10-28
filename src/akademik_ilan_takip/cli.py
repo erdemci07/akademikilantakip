@@ -22,16 +22,21 @@ async def _scan(notify: bool) -> None:
         if not settings.authorized_ids:
             raise ConfigurationError("Bildirim için AUTHORIZED_TELEGRAM_IDS tanımlı değil.")
         for chat_id in settings.authorized_ids:
-            for listing, analysis in new_items:
+            # Avoid Telegram flood limits; every new notice still gets a link.
+            for index, (listing, analysis) in enumerate(new_items):
                 await send_message(settings, chat_id, listing_message(listing, analysis))
+                if index < len(new_items) - 1:
+                    await asyncio.sleep(1.1)
             await send_message(settings, chat_id, report_message(report))
-    if report.failed_sources:
-        raise RuntimeError(f"{len(report.failed_sources)} kaynak başarısız; rapor başarılı sayılmadı.")
+    if report.sources and len(report.failed_sources) == len(report.sources):
+        # If every source failed, make the workflow red instead of claiming success.
+        raise RuntimeError("Bütün kaynaklar başarısız oldu; durum raporu iletildi.")
+    # Partial failures must still be visible in report but should not prevent
+    # a healthy hourly run from succeeding.
 
 
 async def _telegram_test(chat_id: int) -> None:
     settings = Settings.from_env()
-    # Dedicated test chat may be absent from the notification set; it is still explicit CI configuration.
     if settings.authorized_ids and chat_id not in settings.authorized_ids:
         settings = replace(settings, authorized_ids=settings.authorized_ids | {chat_id})
     await send_message(settings, chat_id, "✅ Akademik İlan Takip Telegram bağlantı testi başarılı.")
@@ -39,7 +44,6 @@ async def _telegram_test(chat_id: int) -> None:
 
 
 def main() -> None:
-    # Windows consoles can otherwise reject Turkish/emoji status reports with cp1254.
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")

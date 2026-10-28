@@ -4,6 +4,7 @@ import httpx
 import pytest
 from bs4 import BeautifulSoup
 
+from akademik_ilan_takip.analyzer import without_ai
 from akademik_ilan_takip.models import Listing
 from akademik_ilan_takip.sources import (
     NoticePageSource,
@@ -15,7 +16,6 @@ from akademik_ilan_takip.sources import (
     parse_turkish_date,
 )
 from akademik_ilan_takip.telegram import listing_message
-from akademik_ilan_takip.analyzer import without_ai
 
 
 def test_index_filters_results_and_keeps_recruitment():

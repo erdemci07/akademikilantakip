@@ -1,16 +1,16 @@
 [
-  {
-    "id": "resmi_gazete",
-    "name": "Resmi Gazete",
-    "url": "https://www.resmigazete.gov.tr/",
-    "kind": "notice_page",
-    "enabled": true
-  },
-  {
-    "id": "ilan_gov_tr",
-    "name": "ilan.gov.tr",
-    "url": "https://www.ilan.gov.tr/ilan/kategori/6914/c4?aci=49&currentPage=0",
-    "kind": "notice_page",
-    "enabled": true
-  }
+  {"id":"resmi_gazete","name":"Resmî Gazete","url":"https://www.resmigazete.gov.tr/","kind":"resmigazete_daily","max_candidates":24},
+  {"id":"ilan_gov","name":"ilan.gov.tr","url":"https://www.ilan.gov.tr/ilan/kategori/6914/c4?aci=49&currentPage=0","kind":"official","max_candidates":12},
+  {"id":"kamuilan","name":"SBB Kamu İlan","url":"https://kamuilan.sbb.gov.tr/","kind":"official","max_candidates":12},
+  {"id":"ankara","name":"Ankara Üniversitesi","url":"https://personeldb.ankara.edu.tr/tum-duyurular/","kind":"official","max_candidates":12},
+  {"id":"akdeniz","name":"Akdeniz Üniversitesi","url":"https://personel.akdeniz.edu.tr/tr/duyurular","kind":"official","max_candidates":12},
+  {"id":"bogazici","name":"Boğaziçi Üniversitesi","url":"https://personel.bogazici.edu.tr/tr/announcements","kind":"official","max_candidates":12},
+  {"id":"ktu","name":"Karadeniz Teknik Üniversitesi","url":"https://www.ktu.edu.tr/personel/duyurular","kind":"official","max_candidates":12},
+  {"id":"sirnak","name":"Şırnak Üniversitesi","url":"https://personeldb.sirnak.edu.tr/tr/duyurular/","kind":"official","max_candidates":12},
+  {"id":"gazi","name":"Gazi Üniversitesi","url":"https://personel.gazi.edu.tr/view/announcement-list/1?Type=1","kind":"official","max_candidates":12},
+  {"id":"firat","name":"Fırat Üniversitesi","url":"https://personeldb.firat.edu.tr/announcements-all","kind":"official","max_candidates":12},
+  {"id":"harran","name":"Harran Üniversitesi","url":"https://www.harran.edu.tr/idari/daire-baskanliklari/personel-daire-baskanligi/duyurular","kind":"official","max_candidates":12},
+  {"id":"giresun","name":"Giresun Üniversitesi","url":"https://www.giresun.edu.tr/tr/announcements","kind":"official","max_candidates":12},
+  {"id":"ksu","name":"Kahramanmaraş Sütçü İmam Üniversitesi","url":"https://www.ksu.edu.tr/Default?DId=KSU&MI=42546&SId=0","kind":"official","max_candidates":12},
+  {"id":"memurlar","name":"Memurlar.net Akademik İlanlar","url":"https://ilan.memurlar.net/kategori/akademik-ilanlar-devlet/","kind":"aggregator","max_candidates":12}
 ]

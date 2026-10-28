@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, date, datetime
 from hashlib import sha256
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,11 +29,16 @@ class Listing:
     published_at: date | None = None
     deadline: date | None = None
     discovered_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    official_url: str | None = None
+    application_url: str | None = None
+    official_verified: bool = False
 
     @property
     def identity(self) -> str:
-        raw = f"{self.source_id}|{self.url.strip().lower()}"
-        return sha256(raw.encode()).hexdigest()
+        canonical = self.official_url or self.url
+        parts = urlsplit(canonical)
+        normalized = urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), parts.query, ""))
+        return sha256(normalized.encode()).hexdigest()
 
     @property
     def content_hash(self) -> str:
