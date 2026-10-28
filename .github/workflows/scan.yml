@@ -1,8 +1,10 @@
+
 name: Hourly Academic Listing Scan
 
 on:
   schedule:
     - cron: "17 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -21,7 +23,111 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .
+
+      - name: Register Telegram users who press Start
+        continue-on-error: true
+        env:
+          DATABASE_BACKEND: firestore
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          AUTHORIZED_TELEGRAM_IDS: ${{ secrets.AUTHORIZED_TELEGRAM_IDS }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python - <<'PY'
+          import json
+          from datetime import UTC, datetime
+
+          import httpx
+
+          from akademik_ilan_takip.settings import Settings
+          from akademik_ilan_takip.storage import create_repository
+          from akademik_ilan_takip.subscribers import FirestoreSubscribers
+          from akademik_ilan_takip.telegram import report_message
+          from functions.subscription_logic import process_update
+
+          settings = Settings.from_env()
+          settings.require_telegram()
+          repo = create_repository(settings, production=True)
+          subscribers = FirestoreSubscribers(repo.db, settings.firestore_prefix)
+          subscribers.bootstrap_legacy(settings.authorized_ids)
+          cursor = repo.db.collection(f"{settings.firestore_prefix}_meta").document("telegram_poll_offset_v1")
+          offset = int((cursor.get().to_dict() or {}).get("next_offset", 0))
+          api = f"https://api.telegram.org/bot{settings.telegram_token}/"
+          handled = 0
+
+          class SubscriptionStore:
+              def subscribe(self, chat_id):
+                  subscribers.collection.document(str(chat_id)).set({
+                      "chat_id": chat_id, "active": True,
+                      "source": "telegram_start", "updated_at": datetime.now(UTC).isoformat(),
+                  }, merge=True)
+
+              def unsubscribe(self, chat_id):
+                  subscribers.collection.document(str(chat_id)).set({
+                      "chat_id": chat_id, "active": False,
+                      "updated_at": datetime.now(UTC).isoformat(),
+                  }, merge=True)
+
+              def forget(self, chat_id):
+                  subscribers.collection.document(str(chat_id)).delete()
+
+          class Reports:
+              def last_report_summary(self):
+                  report = repo.last_report()
+                  return report_message(report) if report else None
+
+              def recent_listings_summary(self):
+                  items = repo.recent_listings(eligible_only=False, limit=6)
+                  if not items:
+                      return None
+                  lines = ["📋 Son akademik ilanlar:"]
+                  for listing, _ in items:
+                      lines.append(f"• {listing.title[:100]}\n{listing.official_url or listing.url}")
+                  return "\n\n".join(lines)[:3900]
+
+          with httpx.Client(timeout=20) as client:
+              def reply(chat_id, message):
+                  try:
+                      response = client.post(api + "sendMessage", json={
+                          "chat_id": chat_id, "text": message,
+                          "disable_web_page_preview": True,
+                      })
+                      if response.status_code != 200:
+                          print(f"Telegram response failed: HTTP {response.status_code}")
+                  except httpx.HTTPError:
+                      print("Telegram reply failed; subscription record was saved.")
+
+              for _ in range(10):
+                  try:
+                      response = client.post(api + "getUpdates", json={
+                          "offset": offset, "limit": 100, "timeout": 0,
+                          "allowed_updates": ["message"],
+                      })
+                  except httpx.HTTPError:
+                      raise SystemExit("Telegram update fetch failed") from None
+                  if response.status_code != 200:
+                      raise SystemExit(
+                          f"Telegram getUpdates HTTP {response.status_code}. "
+                          "Check whether another polling bot or webhook is active."
+                      )
+                  data = response.json()
+                  if not data.get("ok"):
+                      raise SystemExit("Telegram refused getUpdates")
+                  updates = data.get("result", [])
+                  for update in updates:
+                      update_id = update.get("update_id")
+                      if type(update_id) is not int:
+                          continue
+                      if process_update(update, SubscriptionStore(), reply, Reports()):
+                          handled += 1
+                      offset = max(offset, update_id + 1)
+                      cursor.set({"next_offset": offset}, merge=True)
+                  if len(updates) < 100:
+                      break
+          print(f"Telegram subscriber commands processed: {handled}")
+          PY
+
       - name: Scan and notify
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 * * * *'
         env:
           DATABASE_BACKEND: firestore
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
