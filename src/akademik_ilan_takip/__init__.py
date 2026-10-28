@@ -1,0 +1,2 @@
+"""Akademik ilan izleme uygulamasi."""
+

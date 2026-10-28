@@ -1,0 +1,16 @@
+[
+  {
+    "id": "resmi_gazete",
+    "name": "Resmi Gazete",
+    "url": "https://www.resmigazete.gov.tr/",
+    "kind": "notice_page",
+    "enabled": true
+  },
+  {
+    "id": "ilan_gov_tr",
+    "name": "ilan.gov.tr",
+    "url": "https://www.ilan.gov.tr/ilan/kategori/6914/c4?aci=49&currentPage=0",
+    "kind": "notice_page",
+    "enabled": true
+  }
+]

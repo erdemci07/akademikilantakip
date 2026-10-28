@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: akademik-ilan-takip
+Version: 0.1.0
+Summary: Turkiye akademik ilanlarini izleyen yetkili Telegram botu
+Requires-Python: >=3.12
+Requires-Dist: beautifulsoup4<5,>=4.12
+Requires-Dist: httpx<1,>=0.27
+Requires-Dist: openai<2,>=1.0
+Requires-Dist: pypdf<6,>=5.0
+Requires-Dist: python-dotenv<2,>=1.0
+Requires-Dist: python-telegram-bot<22,>=21.0
+Requires-Dist: firebase-admin<7,>=6.5
+Provides-Extra: dev
+Requires-Dist: pytest<9,>=8.0; extra == "dev"
+Requires-Dist: pytest-asyncio<1,>=0.23; extra == "dev"
+Requires-Dist: ruff<1,>=0.6; extra == "dev"
