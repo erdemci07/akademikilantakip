@@ -1,0 +1,174 @@
+
+name: Deploy Public Telegram Webhook
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-public-webhook
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Authenticate Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+
+      - name: Setup Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools
+
+      - name: Prepare project and secure values
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import secrets
+          from pathlib import Path
+
+          account = json.loads(os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"])
+          project = account["project_id"]
+          token = os.environ["TELEGRAM_BOT_TOKEN"]
+          if not token:
+              raise SystemExit("TELEGRAM_BOT_TOKEN missing")
+
+          with open(os.environ["GITHUB_ENV"], "a") as file:
+              file.write(f"FIREBASE_PROJECT_ID={project}\n")
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          for name, value in [
+              ("telegram-token", token),
+              ("telegram-webhook-secret", secrets.token_hex(32)),
+          ]:
+              path = temp / name
+              path.write_text(value)
+              path.chmod(0o600)
+
+          print("Project and secure files prepared.")
+          PY
+
+      - name: Register Firebase secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          firebase functions:secrets:set TELEGRAM_BOT_TOKEN \
+            --data-file "$RUNNER_TEMP/telegram-token" \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+
+          firebase functions:secrets:set TELEGRAM_WEBHOOK_SECRET \
+            --data-file "$RUNNER_TEMP/telegram-webhook-secret" \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+
+      - name: Deploy Firebase Function
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          firebase deploy \
+            --only functions:telegram-public-subscribers \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+
+      - name: Discover and verify HTTPS endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          URL="$(gcloud functions describe telegram_webhook \
+            --gen2 \
+            --region europe-west1 \
+            --project "$FIREBASE_PROJECT_ID" \
+            --format='value(serviceConfig.uri)')"
+
+          if [ -z "$URL" ]; then
+            echo "::error::Webhook URL not found"
+            exit 1
+          fi
+
+          STATUS="$(curl --silent --output /dev/null \
+            --write-out '%{http_code}' "$URL")"
+
+          if [ "$STATUS" != "405" ]; then
+            echo "::error::Webhook endpoint HTTP status: $STATUS"
+            exit 1
+          fi
+
+          echo "WEBHOOK_URL=$URL" >> "$GITHUB_ENV"
+          echo "HTTPS endpoint verified."
+
+      - name: Connect Telegram webhook
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from urllib import error, parse, request
+
+          secret = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "telegram-webhook-secret"
+          ).read_text()
+
+          values = parse.urlencode({
+              "url": os.environ["WEBHOOK_URL"],
+              "secret_token": secret,
+              "drop_pending_updates": "false",
+          }).encode()
+
+          address = (
+              "https://api.telegram.org/bot"
+              + os.environ["TELEGRAM_BOT_TOKEN"]
+              + "/setWebhook"
+          )
+
+          try:
+              req = request.Request(address, data=values, method="POST")
+              with request.urlopen(req, timeout=30) as response:
+                  result = json.load(response)
+          except (error.HTTPError, error.URLError):
+              raise SystemExit("Telegram webhook setup failed") from None
+
+          if not result.get("ok"):
+              raise SystemExit("Telegram rejected webhook setup")
+
+          print("Telegram webhook registered successfully.")
+          PY
+
+      - name: Remove temporary secret files
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/telegram-token"
+          rm -f "$RUNNER_TEMP/telegram-webhook-secret"
