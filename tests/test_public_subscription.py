@@ -9,16 +9,21 @@ import pytest
 class FakeSubscribers:
     def __init__(self):
         self.enabled: set[int] = set()
+        self.seen: set[int] = set()
         self.deleted: set[int] = set()
 
-    def subscribe(self, chat_id: int) -> None:
+    def subscribe(self, chat_id: int) -> bool:
+        first = chat_id not in self.seen
+        self.seen.add(chat_id)
         self.enabled.add(chat_id)
+        return first
 
     def unsubscribe(self, chat_id: int) -> None:
         self.enabled.discard(chat_id)
 
     def forget(self, chat_id: int) -> None:
         self.enabled.discard(chat_id)
+        self.seen.discard(chat_id)
         self.deleted.add(chat_id)
 
 
@@ -86,3 +91,60 @@ def test_status_without_record(command_runner):
 
 def test_unknown_command_not_handled(command_runner):
     assert not command_runner(message("/random"), FakeSubscribers(), lambda *_: None)
+
+
+class SampleHistory:
+    def __init__(self):
+        self.reads = 0
+
+    def initial_history_summary(self) -> str:
+        self.reads += 1
+        return "📚 Geçmişten 8 ilan: https://uni.edu.tr/ilan"
+
+
+def test_first_start_delivers_history_once(command_runner):
+    store = FakeSubscribers()
+    history = SampleHistory()
+    replies = []
+
+    def reply(chat_id, text):
+        replies.append((chat_id, text))
+
+    assert command_runner(message("/start"), store, reply, history)
+    assert len(replies) == 2
+    assert "aktif" in replies[0][1]
+    assert "Geçmişten" in replies[1][1]
+    assert history.reads == 1
+
+    assert command_runner(message("/start"), store, reply, history)
+    assert command_runner(message("/devam"), store, reply, history)
+    assert len(replies) == 4
+    assert history.reads == 1
+
+
+def test_reactivation_does_not_repeat_history(command_runner):
+    store = FakeSubscribers()
+    history = SampleHistory()
+    replies = []
+
+    def reply(chat_id, text):
+        replies.append(text)
+
+    command_runner(message("/start"), store, reply, history)
+    command_runner(message("/dur"), store, reply, history)
+    command_runner(message("/start"), store, reply, history)
+    assert history.reads == 1
+
+
+def test_history_failure_does_not_cancel_subscription(command_runner):
+    store = FakeSubscribers()
+
+    class Unavailable:
+        def initial_history_summary(self):
+            raise RuntimeError("Firestore unavailable")
+
+    replies = []
+    assert command_runner(message("/start"), store, lambda _chat, value: replies.append(value), Unavailable())
+    assert store.enabled == {101}
+    assert len(replies) == 2
+    assert "görüntülenemedi" in replies[1]
