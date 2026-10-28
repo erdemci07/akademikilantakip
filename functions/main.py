@@ -10,7 +10,6 @@ import firebase_admin
 import requests
 from firebase_admin import firestore
 from firebase_functions import https_fn
-
 from subscription_logic import process_update
 
 logging.basicConfig(level=logging.INFO)

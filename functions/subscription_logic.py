@@ -1,7 +1,8 @@
 """Pure command handling; exercised by unit tests without Google or Telegram APIs."""
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 def process_update(

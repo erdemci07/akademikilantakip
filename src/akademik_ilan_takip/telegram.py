@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -66,14 +67,29 @@ def report_message(report: ScanReport) -> str:
     return msg[:4000]
 
 
-async def send_message(settings: Settings, chat_id: int, text: str) -> None:
+async def send_message(
+    settings: Settings, chat_id: int, text: str, *, allow_subscriber: bool = False
+) -> None:
     settings.require_telegram()
-    if chat_id not in settings.authorized_ids and settings.authorized_ids:
+    if not allow_subscriber and chat_id not in settings.authorized_ids and settings.authorized_ids:
         raise ConfigurationError("Bu chat ID yetkili listesinde değil.")
+    if allow_subscriber and chat_id <= 0:
+        raise ConfigurationError("Abonelik mesajı yalnızca özel sohbetlere gönderilebilir.")
     url = f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage"
     async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.post(url, json={"chat_id": chat_id, "text": text, "disable_web_page_preview": True})
-        response.raise_for_status()
-        data = response.json()
-        if not data.get("ok"):
-            raise RuntimeError(f"Telegram mesajı kabul etmedi: {data.get('description', 'bilinmeyen hata')}")
+        for attempt in range(4):
+            response = await client.post(url, json={
+                "chat_id": chat_id, "text": text, "disable_web_page_preview": True,
+            })
+            if response.status_code == 429 and attempt < 3:
+                retry_after = response.json().get("parameters", {}).get("retry_after", 2)
+                await asyncio.sleep(max(1, min(float(retry_after), 30)))
+                continue
+            if response.status_code >= 500 and attempt < 3:
+                await asyncio.sleep(min(2 ** attempt, 8))
+                continue
+            response.raise_for_status()
+            data = response.json()
+            if not data.get("ok"):
+                raise RuntimeError("Telegram API yanıtı başarısız")
+            return
