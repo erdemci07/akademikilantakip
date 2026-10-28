@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -45,27 +48,89 @@ def listing_message(listing: Listing, analysis: Analysis) -> str:
     return "\n".join(lines)[:4000]
 
 
-def report_message(report: ScanReport) -> str:
-    finished = report.finished_at.astimezone(ZoneInfo("Europe/Istanbul")).strftime("%d.%m.%Y %H:%M (TR)")
-    good = len(report.sources) - len(report.failed_sources)
-    details = [
-        f"{'✅' if result.ok else '⚠️'} {result.source_name}: "
-        f"{result.listings_found} duyuru" + (f" — {result.error}" if result.error else "")
-        for result in report.sources
-    ]
-    msg = (
-        f"🔎 Akademik ilan saatlik raporu — {finished}\n"
-        f"Kaynak başarısı: {good}/{len(report.sources)}\n"
-        f"Yeni, süresi geçmemiş duyuru: {report.new_listings}\n"
-        f"Uygun / potansiyel: {report.eligible_new_listings}\n"
-    )
-    if report.new_listings == 0:
-        msg += "Bu saatlik kontrolde yeni uygun ilan bulunamadı.\n"
-    if report.failed_sources:
-        msg += f"⚠️ {len(report.failed_sources)} kaynak eksik: tarama Türkiye genelinde tam değil.\n"
-    msg += "\nKaynaklar:\n" + ("\n".join(details) or "Kaynak yapılandırılmadı.")
-    return msg[:4000]
+def _source_catalog() -> dict[str, tuple[str, str]]:
+    """Use the actual configured source URLs, never guessed announcement links."""
+    path = Path(os.environ.get("SOURCES_FILE", "config/sources.json"))
+    if not path.is_file() and not path.is_absolute():
+        path = Path(__file__).resolve().parents[2] / path
+    try:
+        records = json.loads(path.read_text(encoding="utf-8"))
+        return {
+            item["id"]: (item["url"], item.get("kind", "official"))
+            for item in records
+            if isinstance(item, dict) and item.get("enabled", True)
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
 
+
+def report_message(report: ScanReport) -> str:
+    """A readable hourly digest with links to every source actually attempted."""
+    finished = report.finished_at.astimezone(ZoneInfo("Europe/Istanbul"))
+    catalog = _source_catalog()
+    successful = sum(1 for source in report.sources if source.ok)
+    total_found = sum(source.listings_found for source in report.sources)
+    failed = len(report.sources) - successful
+
+    lines = [
+        "📚 AKADEMİK İLAN TAKİP | SAATLİK RAPOR",
+        f"🗓️ {finished.strftime('%d.%m.%Y • %H:%M')} (Türkiye)",
+        "",
+        "📊 TARAMA ÖZETİ",
+        f"🆕 Yeni tespit edilen ilan: {report.new_listings}",
+        f"📄 Kaynaklarda incelenen duyuru: {total_found}",
+        f"✅ Kontrolü tamamlanan kaynak: {successful}/{len(report.sources)}",
+    ]
+    if failed:
+        lines.append(f"🟠 Kontrolü eksik kalan kaynak: {failed}")
+    if report.new_listings == 0:
+        lines.extend(["", "📭 Bu saat yeni bir ilan tespit edilmedi."])
+        lines.append("Daha önce kaydedilen ilanlar her saat yeniden gönderilmez.")
+    else:
+        lines.append("📬 Yeni ilanların ayrıntıları ayrı mesajlarda paylaşıldı.")
+
+    def source_group(source) -> str:
+        if source.source_id in {"resmi_gazete", "ilan_gov", "kamuilan"}:
+            return "🏛️ KAMU İLAN PORTALLARI"
+        if catalog.get(source.source_id, ("", ""))[1] == "aggregator":
+            return "📰 EK İLAN KAYNAKLARI"
+        return "🎓 ÜNİVERSİTE DUYURULARI"
+
+    for heading in (
+        "🏛️ KAMU İLAN PORTALLARI",
+        "🎓 ÜNİVERSİTE DUYURULARI",
+        "📰 EK İLAN KAYNAKLARI",
+    ):
+        group = [source for source in report.sources if source_group(source) == heading]
+        if not group:
+            continue
+        lines.extend(["", heading])
+        for source in group:
+            if source.ok and source.listings_found:
+                status = f"{source.listings_found} duyuru incelendi"
+                sign = "✅"
+            elif source.ok:
+                status = "bu taramada ilgili duyuru bulunmadı"
+                sign = "✅"
+            elif source.listings_found:
+                status = f"{source.listings_found} duyuru incelendi; kontrol kısmen eksik"
+                sign = "🟠"
+            else:
+                status = "kontrol tamamlanamadı"
+                sign = "🟠"
+            lines.append(f"{sign} {source.source_name} — {status}")
+            url = catalog.get(source.source_id, ("", ""))[0]
+            if url:
+                lines.append(f"🔗 {url}")
+
+    lines.extend([
+        "",
+        "ℹ️ Duyuru sayısı, yeni ve başvuruya açık ilan sayısı değildir.",
+        "Bu rapor yalnızca botta tanımlı kaynakları kapsar; tüm üniversiteleri kapsamaz.",
+    ])
+    if failed:
+        lines.append("Bazı kaynakların kontrolü eksik olduğundan yeni ilanlar gözden kaçmış olabilir.")
+    return "\n".join(lines)[:4000]
 
 async def send_message(
     settings: Settings, chat_id: int, text: str, *, allow_subscriber: bool = False
