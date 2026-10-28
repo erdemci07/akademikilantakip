@@ -38,6 +38,7 @@ jobs:
 
           import httpx
 
+          from akademik_ilan_takip.history import initial_history_summary
           from akademik_ilan_takip.settings import Settings
           from akademik_ilan_takip.storage import create_repository
           from akademik_ilan_takip.subscribers import FirestoreSubscribers
@@ -56,10 +57,13 @@ jobs:
 
           class SubscriptionStore:
               def subscribe(self, chat_id):
-                  subscribers.collection.document(str(chat_id)).set({
+                  document = subscribers.collection.document(str(chat_id))
+                  first_subscription = not document.get().exists
+                  document.set({
                       "chat_id": chat_id, "active": True,
                       "source": "telegram_start", "updated_at": datetime.now(UTC).isoformat(),
                   }, merge=True)
+                  return first_subscription
 
               def unsubscribe(self, chat_id):
                   subscribers.collection.document(str(chat_id)).set({
@@ -71,6 +75,9 @@ jobs:
                   subscribers.collection.document(str(chat_id)).delete()
 
           class Reports:
+              def initial_history_summary(self):
+                  return initial_history_summary(repo)
+
               def last_report_summary(self):
                   report = repo.last_report()
                   return report_message(report) if report else None
